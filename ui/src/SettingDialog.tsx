@@ -8,6 +8,8 @@ import {
     Button,
     Autocomplete,
     Box,
+    Checkbox,
+    FormControlLabel,
 } from '@mui/material';
 import {
     CodecBestQuality,
@@ -40,12 +42,19 @@ export const SettingDialog = ({open, setOpen, updateName, saveSettings}: Setting
     const [settingsInput, setSettingsInput] = React.useState(loadSettings);
 
     const doSubmit = () => {
+        if (
+            settingsInput.memberActivityNotifications &&
+            'Notification' in window &&
+            Notification.permission === 'default'
+        ) {
+            void Notification.requestPermission();
+        }
         saveSettings(settingsInput);
         updateName(settingsInput.name ?? '');
         setOpen(false);
     };
 
-    const {name, preferCodec, displayMode, framerate} = settingsInput;
+    const {name, preferCodec, displayMode, framerate, memberActivityNotifications} = settingsInput;
 
     return (
         <Dialog open={open} onClose={() => setOpen(false)} maxWidth={'xs'} fullWidth>
@@ -62,6 +71,22 @@ export const SettingDialog = ({open, setOpen, updateName, saveSettings}: Setting
                                 setSettingsInput((c) => ({...c, name: e.target.value}))
                             }
                             fullWidth
+                        />
+                    </Box>
+                    <Box paddingBottom={1}>
+                        <FormControlLabel
+                            control={
+                                <Checkbox
+                                    checked={memberActivityNotifications}
+                                    onChange={(_, checked) =>
+                                        setSettingsInput((current) => ({
+                                            ...current,
+                                            memberActivityNotifications: checked,
+                                        }))
+                                    }
+                                />
+                            }
+                            label="Member join/leave notifications"
                         />
                     </Box>
                     {NativeCodecs.length > 0 ? (

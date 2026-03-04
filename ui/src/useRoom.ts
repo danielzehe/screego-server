@@ -8,6 +8,7 @@ import {
     OutgoingMessage,
     RoomCreate,
     RoomInfo,
+    RoomUser,
     UIConfig,
 } from './message';
 import {loadSettings, resolveCodecPlaceholder} from './settings';
@@ -38,6 +39,36 @@ export interface UseRoom {
 
 const relayConfig: Partial<RTCConfiguration> =
     window.location.search.indexOf('forceTurn=true') !== -1 ? {iceTransportPolicy: 'relay'} : {};
+
+type MemberActivityAction = 'joined' | 'left';
+
+const roomUsersMap = (users: RoomUser[]): Map<string, RoomUser> =>
+    new Map(users.map((user) => [user.id, user]));
+
+const notifyMemberActivity = ({
+    userName,
+    action,
+    notificationsEnabled,
+    enqueueSnackbar,
+}: {
+    userName: string;
+    action: MemberActivityAction;
+    notificationsEnabled: boolean;
+    enqueueSnackbar: ReturnType<typeof useSnackbar>['enqueueSnackbar'];
+}) => {
+    if (!notificationsEnabled) {
+        return;
+    }
+
+    const message = `${userName} ${action}`;
+
+    if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('Screego', {body: message});
+        return;
+    }
+
+    enqueueSnackbar(message, {variant: 'info'});
+};
 
 const hostSession = async ({
     sid,
@@ -166,12 +197,53 @@ export const useRoom = (config: UIConfig): UseRoom => {
     const host = React.useRef<Record<string, RTCPeerConnection>>({});
     const client = React.useRef<Record<string, RTCPeerConnection>>({});
     const stream = React.useRef<MediaStream>(undefined);
+    const previousUsers = React.useRef<Map<string, RoomUser> | undefined>(undefined);
 
     const [state, setState] = React.useState<RoomState>(false);
+    const notifyRoomUserChange = React.useCallback(
+        (users: RoomUser[]) => {
+            const currentUsers = roomUsersMap(users);
+            const oldUsers = previousUsers.current;
+            previousUsers.current = currentUsers;
+
+            if (!oldUsers) {
+                return;
+            }
+
+            const selfID = users.find((user) => user.you)?.id;
+            const memberActivityNotifications = loadSettings().memberActivityNotifications;
+
+            for (const [id, user] of currentUsers) {
+                if (oldUsers.has(id) || selfID === id) {
+                    continue;
+                }
+                notifyMemberActivity({
+                    userName: user.name,
+                    action: 'joined',
+                    notificationsEnabled: memberActivityNotifications,
+                    enqueueSnackbar,
+                });
+            }
+
+            for (const [id, user] of oldUsers) {
+                if (currentUsers.has(id) || selfID === id) {
+                    continue;
+                }
+                notifyMemberActivity({
+                    userName: user.name,
+                    action: 'left',
+                    notificationsEnabled: memberActivityNotifications,
+                    enqueueSnackbar,
+                });
+            }
+        },
+        [enqueueSnackbar]
+    );
 
     const room: FCreateRoom = React.useCallback(
         (create) => {
             return new Promise<void>((resolve) => {
+                previousUsers.current = undefined;
                 const ws = (conn.current = new WebSocket(
                     urlWithSlash.replace('http', 'ws') + 'stream'
                 ));
@@ -185,6 +257,7 @@ export const useRoom = (config: UIConfig): UseRoom => {
                         first = false;
                         if (event.type === 'room') {
                             resolve();
+                            previousUsers.current = roomUsersMap(event.payload.users);
                             setState({ws, ...event.payload, clientStreams: []});
                             setRoomID(event.payload.id);
                         } else {
@@ -197,6 +270,7 @@ export const useRoom = (config: UIConfig): UseRoom => {
 
                     switch (event.type) {
                         case 'room':
+                            notifyRoomUserChange(event.payload.users);
                             setState((current) =>
                                 current ? {...current, ...event.payload} : current
                             );
@@ -299,6 +373,7 @@ export const useRoom = (config: UIConfig): UseRoom => {
                         resolve();
                         first = false;
                     }
+                    previousUsers.current = undefined;
                     enqueueSnackbar(event.reason, {variant: 'error', persist: true});
                     setState(false);
                 };
@@ -307,6 +382,7 @@ export const useRoom = (config: UIConfig): UseRoom => {
                         resolve();
                         first = false;
                     }
+                    previousUsers.current = undefined;
                     enqueueSnackbar(err?.toString(), {variant: 'error', persist: true});
                     setState(false);
                 };
@@ -316,7 +392,7 @@ export const useRoom = (config: UIConfig): UseRoom => {
                 };
             });
         },
-        [setState, enqueueSnackbar, setRoomID]
+        [setState, enqueueSnackbar, notifyRoomUserChange, setRoomID]
     );
 
     const share = async () => {
