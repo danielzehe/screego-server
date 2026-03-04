@@ -1,0 +1,41 @@
+FROM --platform=$BUILDPLATFORM node:25-alpine AS ui
+WORKDIR /src/ui
+
+COPY ui/package*.json ./
+RUN npm install --legacy-peer-deps --no-audit --no-fund
+
+COPY ui ./
+RUN npm run build
+
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
+ARG TARGETOS
+ARG TARGETARCH
+ARG TARGETVARIANT
+ARG VERSION=dev
+ARG COMMIT=unknown
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+COPY --from=ui /src/ui/build ./ui/build
+
+RUN set -eux; \
+    GOARM=""; \
+    if [ "${TARGETARCH}" = "arm" ] && [ -n "${TARGETVARIANT}" ]; then GOARM="${TARGETVARIANT#v}"; fi; \
+    CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" GOARM="${GOARM}" \
+    go build -trimpath -tags "netgo osusergo" \
+    -ldflags "-s -w -X main.version=${VERSION} -X main.commitHash=${COMMIT} -X main.mode=prod" \
+    -o /out/screego ./main.go
+
+FROM scratch
+USER 1001
+COPY --from=builder /out/screego /screego
+EXPOSE 3478/tcp
+EXPOSE 3478/udp
+EXPOSE 5050
+WORKDIR /
+ENTRYPOINT ["/screego"]
+CMD ["serve"]

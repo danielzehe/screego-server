@@ -1,0 +1,12 @@
+.git
+.github
+.codex
+.DS_Store
+
+dist
+
+node_modules
+ui/node_modules
+ui/build
+
+Dockerfile.multiarch

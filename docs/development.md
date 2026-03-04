@@ -92,3 +92,49 @@ $ golangci-lint run
    ```bash
    go build -ldflags "-X main.version=$(git describe --tags HEAD) -X main.mode=prod" -o screego ./main.go
    ```
+
+## Local Multi-Arch Docker Build
+
+Build and optionally push multi-platform images locally without GitHub Actions.
+
+### Files
+
+- `Dockerfile.multiarch`
+- `scripts/build-multiarch-image.sh`
+
+### Push to your registry
+
+```bash
+./scripts/build-multiarch-image.sh \
+  --version 1.12.2b \
+  --repo registry.example.com/screego \
+  --tag 1.12.2b \
+  --tag latest
+```
+
+### Build without push
+
+Single platform (loads into local Docker daemon):
+
+```bash
+./scripts/build-multiarch-image.sh \
+  --repo registry.example.com/screego \
+  --tag dev \
+  --no-push \
+  --platforms linux/amd64
+```
+
+Multi-platform (exports OCI archive):
+
+```bash
+./scripts/build-multiarch-image.sh \
+  --repo registry.example.com/screego \
+  --tag dev \
+  --no-push
+```
+
+Default OCI output path:
+
+```text
+dist/docker/<repo>_<tag>.oci.tar
+```
